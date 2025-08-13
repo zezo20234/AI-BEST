@@ -3,16 +3,42 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Always-On Voice Flight Logger (Firebase)</title>
+<title>Interactive Flight Logger</title>
 <style>
-    body { font-family: Arial, sans-serif; text-align: center; margin: 30px; background: linear-gradient(135deg, #74ebd5, #ACB6E5); }
-    input, button { padding: 10px; margin: 5px; font-size: 16px; border-radius: 5px; border: none; }
-    button { cursor: pointer; transition: all 0.2s ease-in-out; background-color: #4CAF50; color: white; }
-    button:hover { background-color: #45a049; transform: scale(1.05); }
-    #flightBox { background: #fff; border-radius: 15px; padding: 20px; display: inline-block; margin-top: 20px; box-shadow: 0px 8px 20px rgba(0,0,0,0.3); min-width: 320px; transition: all 0.3s ease-in-out; transform: scale(0); opacity: 0; }
-    #flightBox.show { transform: scale(1); opacity: 1; }
+    body { 
+        font-family: Arial, sans-serif; 
+        text-align: center; 
+        margin: 30px; 
+        background: linear-gradient(135deg, #74ebd5, #ACB6E5); 
+    }
+    input, button { 
+        padding: 10px; margin: 5px; font-size: 16px; border-radius: 5px; border: none; 
+    }
+    button { 
+        width: 180px; cursor: pointer; transition: all 0.2s ease-in-out; 
+        background-color: #4CAF50; color: white; 
+    }
+    button:hover { 
+        background-color: #45a049; transform: scale(1.05); 
+    }
+    #flightBox {
+        background: #ffffff;
+        border-radius: 15px;
+        padding: 20px;
+        display: inline-block;
+        margin-top: 20px;
+        box-shadow: 0px 8px 20px rgba(0,0,0,0.3);
+        min-width: 320px;
+        transition: all 0.3s ease-in-out;
+        transform: scale(0);
+        opacity: 0;
+    }
+    #flightBox.show {
+        transform: scale(1);
+        opacity: 1;
+    }
+    #flightBox h2 { margin-bottom: 10px; color: #333; }
     #status { font-weight: bold; margin-top: 15px; color: #fff; text-shadow: 1px 1px 2px #000; }
-    #logList { margin-top: 20px; text-align: left; display: none; background: rgba(255,255,255,0.8); padding: 15px; border-radius: 10px; }
 </style>
 </head>
 <body>
@@ -33,7 +59,6 @@
     <button onclick="logPhase('Descent')">Descent</button>
     <button onclick="logPhase('Landing')">Landing</button>
     <button onclick="logPhase('Crash')">Crash</button>
-    <button onclick="saveFlight()">Save Flight</button>
 </div>
 
 <div id="flightBox">
@@ -46,70 +71,52 @@
 </div>
 
 <p id="status">Voice command listening: OFF</p>
-<button id="startVoiceBtn" onclick="initVoice()">🎤 Enable Voice Control</button>
-<button onclick="toggleSavedFlights()">📜 Show Saved Flights</button>
-
-<div id="logList"></div>
-
-<!-- Firebase SDK -->
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
 <script>
+const webhookUrl = "https://discordapp.com/api/webhooks/1405176152498245714/Z-mEXlgv2IGlnT44K49BluIkehIqyMa1W8ILARmdmVp7QUMGRli-VjDjswn5OwQGZdLi";
+
 let flightData = {};
-let flightLog = [];
 
-// Firebase Config
-const firebaseConfig = {
-  apiKey: "AIzaSyAjeXycCBhYoAU-0iiC4LbSTylKrrThN8Y",
-  authDomain: "sharplabubu.firebaseapp.com",
-  databaseURL: "https://sharplabubu-default-rtdb.firebaseio.com",
-  projectId: "sharplabubu",
-  storageBucket: "sharplabubu.firebasestorage.app",
-  messagingSenderId: "596148393481",
-  appId: "1:596148393481:web:4f822d86c44a13bd810ad8",
-  measurementId: "G-4M25R3BF08"
-};
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
+/**
+ * Sends a formatted message to the Discord webhook.
+ * @param {string} phase The current phase of the flight.
+ * @param {number} repeat The number of times to send the message.
+ */
+function sendDiscordMessageBox(phase, repeat = 1) {
+    const message = 
+`@everyone
+\`\`\`
+Callsign: ${flightData.callsign}
+Phase: ${phase}
+Departure: ${flightData.depAirport}
+Arrival: ${flightData.arrAirport}
+Cruise Altitude: ${flightData.cruiseAlt} ft
+\`\`\``;
 
-// Save to Firebase
-function saveFlight() {
-    const timestamp = new Date().toISOString();
-    db.ref('flights/' + timestamp).set(flightData)
-    .then(() => {
-        console.log("Flight saved to Firebase");
-        loadSavedFlights();
-    })
-    .catch(err => console.error("Error saving to Firebase:", err));
-}
+    const body = JSON.stringify({ content: message });
+    const headers = { "Content-Type": "application/json" };
 
-// Load from Firebase
-function loadSavedFlights() {
-    db.ref('flights').once('value', snapshot => {
-        const data = snapshot.val();
-        const logList = document.getElementById("logList");
-        if (!data) {
-            logList.innerHTML = "<em>No saved flights yet</em>";
-            return;
-        }
-        let html = "";
-        Object.keys(data).forEach(key => {
-            const f = data[key];
-            html += `<div><strong>${f.callsign}</strong> - ${f.depAirport} → ${f.arrAirport} (${f.phase})</div>`;
+    // Use a loop to send the message multiple times if specified
+    for(let i = 0; i < repeat; i++) {
+        fetch(webhookUrl, {
+            method: "POST",
+            headers: headers,
+            body: body
+        })
+        .then(response => {
+            if (response.ok) {
+                console.log(`Successfully sent Discord message for phase: ${phase}`);
+            } else {
+                console.error(`Failed to send Discord message. Status: ${response.status}`);
+            }
+        })
+        .catch(error => {
+            console.error("Network or fetch error:", error);
         });
-        logList.innerHTML = html;
-    });
-}
-
-function toggleSavedFlights() {
-    const logList = document.getElementById("logList");
-    logList.style.display = logList.style.display === "none" ? "block" : "none";
-    if (logList.style.display === "block") {
-        loadSavedFlights();
     }
 }
 
+// Start flight after entering info
 function startFlight() {
     const callsign = document.getElementById("callsign").value.trim();
     const depAirport = document.getElementById("depAirport").value.trim();
@@ -122,14 +129,18 @@ function startFlight() {
     }
 
     flightData = { callsign, depAirport, arrAirport, cruiseAlt, phase: "Not started" };
-    flightLog = [];
 
     document.getElementById("setup").style.display = "none";
     document.getElementById("flightControls").style.display = "block";
-    document.getElementById("flightBox").classList.add("show");
+
+    const flightBox = document.getElementById("flightBox");
+    flightBox.classList.add("show");
+
     updateFlightBox();
+    sendDiscordMessageBox("Preparing for departure");
 }
 
+// Update flight info box
 function updateFlightBox() {
     document.getElementById("infoCallsign").innerText = `Callsign: ${flightData.callsign}`;
     document.getElementById("infoDep").innerText = `Departure: ${flightData.depAirport}`;
@@ -138,16 +149,42 @@ function updateFlightBox() {
     document.getElementById("infoCruiseAlt").innerText = `Cruise Altitude: ${flightData.cruiseAlt} ft`;
 }
 
+/**
+ * Logs the flight phase and provides voice feedback for specific events.
+ * @param {string} phase The new phase of the flight.
+ */
 function logPhase(phase) {
     flightData.phase = phase;
-    flightLog.push({ time: new Date().toLocaleTimeString(), phase });
     updateFlightBox();
-    if(phase.toLowerCase() === "landing") {
-        speak("You have landed");
-        saveFlight(); // auto-save after landing
+
+    switch(phase) {
+        case 'Takeoff':
+            speak("Taking off now.");
+            sendDiscordMessageBox(phase);
+            break;
+        case 'Cruise':
+            speak(`Climbing to ${flightData.cruiseAlt} feet.`);
+            sendDiscordMessageBox(phase);
+            break;
+        case 'Descent':
+            speak("Beginning descent.");
+            sendDiscordMessageBox(phase);
+            break;
+        case 'Landing':
+            speak("You have landed.");
+            sendDiscordMessageBox(phase);
+            break;
+        case 'Crash':
+            speak("Warning. The flight has crashed.");
+            sendDiscordMessageBox(phase, 3);
+            break;
+        default:
+            sendDiscordMessageBox(phase);
+            break;
     }
 }
 
+// Speak text using the Web Speech API
 function speak(text) {
     const utter = new SpeechSynthesisUtterance(text);
     speechSynthesis.speak(utter);
@@ -155,10 +192,8 @@ function speak(text) {
 
 // Voice recognition
 let recognition;
-function initVoice() {
-    document.getElementById("startVoiceBtn").style.display = "none";
-    startVoiceRecognition();
-}
+let isListening = false;
+let autoRestartTimeout;
 
 function startVoiceRecognition() {
     const status = document.getElementById("status");
@@ -166,16 +201,25 @@ function startVoiceRecognition() {
         status.innerText = "Voice recognition not supported";
         return;
     }
+
     recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.continuous = true;
     recognition.interimResults = false;
     recognition.lang = 'en-US';
 
-    recognition.onstart = () => { status.innerText = "Voice command listening: ON"; };
+    recognition.onstart = () => {
+        status.innerText = "Voice command listening: ON";
+        isListening = true;
+        clearTimeout(autoRestartTimeout);
+    };
 
     recognition.onerror = (e) => {
-        console.error("Speech error", e);
-        setTimeout(() => recognition.start(), 500);
+        console.error("Speech recognition error:", e);
+        status.innerText = "Voice recognition error, retrying...";
+        isListening = false;
+        autoRestartTimeout = setTimeout(() => {
+            if (!isListening) recognition.start();
+        }, 1000);
     };
 
     recognition.onresult = (event) => {
@@ -190,20 +234,17 @@ function startVoiceRecognition() {
         }
     };
 
-    recognition.onend = () => {
-        recognition.start(); // keep always on
+    recognition.onend = () => { 
+        isListening = false;
+        autoRestartTimeout = setTimeout(() => {
+            if (!isListening) recognition.start();
+        }, 500); 
     };
+
     recognition.start();
 }
 
-// Auto-start if mic permission already granted
-if (navigator.permissions) {
-    navigator.permissions.query({name: 'microphone'}).then(result => {
-        if (result.state === 'granted') {
-            initVoice();
-        }
-    });
-}
+window.onload = startVoiceRecognition;
 </script>
 
 </body>
