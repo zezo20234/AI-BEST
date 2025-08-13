@@ -3,17 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Interactive Flight Logger with Voice</title>
+<title>Always-On Voice Flight Logger (Firebase)</title>
 <style>
     body { font-family: Arial, sans-serif; text-align: center; margin: 30px; background: linear-gradient(135deg, #74ebd5, #ACB6E5); }
     input, button { padding: 10px; margin: 5px; font-size: 16px; border-radius: 5px; border: none; }
-    button { width: 180px; cursor: pointer; transition: all 0.2s ease-in-out; background-color: #4CAF50; color: white; }
+    button { cursor: pointer; transition: all 0.2s ease-in-out; background-color: #4CAF50; color: white; }
     button:hover { background-color: #45a049; transform: scale(1.05); }
     #flightBox { background: #fff; border-radius: 15px; padding: 20px; display: inline-block; margin-top: 20px; box-shadow: 0px 8px 20px rgba(0,0,0,0.3); min-width: 320px; transition: all 0.3s ease-in-out; transform: scale(0); opacity: 0; }
     #flightBox.show { transform: scale(1); opacity: 1; }
-    #flightBox h2 { margin-bottom: 10px; color: #333; }
     #status { font-weight: bold; margin-top: 15px; color: #fff; text-shadow: 1px 1px 2px #000; }
-    #logList { margin-top: 20px; text-align: left; display: inline-block; background: rgba(255,255,255,0.8); padding: 15px; border-radius: 10px; }
+    #logList { margin-top: 20px; text-align: left; display: none; background: rgba(255,255,255,0.8); padding: 15px; border-radius: 10px; }
 </style>
 </head>
 <body>
@@ -47,25 +46,68 @@
 </div>
 
 <p id="status">Voice command listening: OFF</p>
+<button id="startVoiceBtn" onclick="initVoice()">🎤 Enable Voice Control</button>
+<button onclick="toggleSavedFlights()">📜 Show Saved Flights</button>
 
-<h3 style="color:#fff; text-shadow: 1px 1px 3px #000;">Saved Flights</h3>
 <div id="logList"></div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
 <script>
 let flightData = {};
 let flightLog = [];
 
-function updateSavedFlights() {
-    const saved = JSON.parse(localStorage.getItem('savedFlights') || '[]');
-    const logList = document.getElementById("logList");
-    logList.innerHTML = saved.length ? saved.map(f => `<div><strong>${f.callsign}</strong> - ${f.depAirport} → ${f.arrAirport} (${f.phase})</div>`).join('') : "<em>No saved flights yet</em>";
+// Firebase Config
+const firebaseConfig = {
+  apiKey: "AIzaSyAjeXycCBhYoAU-0iiC4LbSTylKrrThN8Y",
+  authDomain: "sharplabubu.firebaseapp.com",
+  databaseURL: "https://sharplabubu-default-rtdb.firebaseio.com",
+  projectId: "sharplabubu",
+  storageBucket: "sharplabubu.firebasestorage.app",
+  messagingSenderId: "596148393481",
+  appId: "1:596148393481:web:4f822d86c44a13bd810ad8",
+  measurementId: "G-4M25R3BF08"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// Save to Firebase
+function saveFlight() {
+    const timestamp = new Date().toISOString();
+    db.ref('flights/' + timestamp).set(flightData)
+    .then(() => {
+        console.log("Flight saved to Firebase");
+        loadSavedFlights();
+    })
+    .catch(err => console.error("Error saving to Firebase:", err));
 }
 
-function saveFlight() {
-    let saved = JSON.parse(localStorage.getItem('savedFlights') || '[]');
-    saved.push({...flightData});
-    localStorage.setItem('savedFlights', JSON.stringify(saved));
-    updateSavedFlights();
+// Load from Firebase
+function loadSavedFlights() {
+    db.ref('flights').once('value', snapshot => {
+        const data = snapshot.val();
+        const logList = document.getElementById("logList");
+        if (!data) {
+            logList.innerHTML = "<em>No saved flights yet</em>";
+            return;
+        }
+        let html = "";
+        Object.keys(data).forEach(key => {
+            const f = data[key];
+            html += `<div><strong>${f.callsign}</strong> - ${f.depAirport} → ${f.arrAirport} (${f.phase})</div>`;
+        });
+        logList.innerHTML = html;
+    });
+}
+
+function toggleSavedFlights() {
+    const logList = document.getElementById("logList");
+    logList.style.display = logList.style.display === "none" ? "block" : "none";
+    if (logList.style.display === "block") {
+        loadSavedFlights();
+    }
 }
 
 function startFlight() {
@@ -84,10 +126,7 @@ function startFlight() {
 
     document.getElementById("setup").style.display = "none";
     document.getElementById("flightControls").style.display = "block";
-
-    const flightBox = document.getElementById("flightBox");
-    flightBox.classList.add("show");
-
+    document.getElementById("flightBox").classList.add("show");
     updateFlightBox();
 }
 
@@ -105,14 +144,20 @@ function logPhase(phase) {
     updateFlightBox();
     if(phase.toLowerCase() === "landing") {
         speak("You have landed");
+        saveFlight(); // auto-save after landing
     }
 }
 
 function speak(text) {
     const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 1;
-    utter.pitch = 1;
     speechSynthesis.speak(utter);
+}
+
+// Voice recognition
+let recognition;
+function initVoice() {
+    document.getElementById("startVoiceBtn").style.display = "none";
+    startVoiceRecognition();
 }
 
 function startVoiceRecognition() {
@@ -121,8 +166,7 @@ function startVoiceRecognition() {
         status.innerText = "Voice recognition not supported";
         return;
     }
-
-    let recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
     recognition.continuous = true;
     recognition.interimResults = false;
     recognition.lang = 'en-US';
@@ -130,9 +174,7 @@ function startVoiceRecognition() {
     recognition.onstart = () => { status.innerText = "Voice command listening: ON"; };
 
     recognition.onerror = (e) => {
-        console.error(e);
-        status.innerText = "Voice recognition error, restarting...";
-        recognition.stop();
+        console.error("Speech error", e);
         setTimeout(() => recognition.start(), 500);
     };
 
@@ -149,26 +191,19 @@ function startVoiceRecognition() {
     };
 
     recognition.onend = () => {
-        recognition.start(); // auto-restart
+        recognition.start(); // keep always on
     };
     recognition.start();
 }
 
-// Try to start voice without asking again if permission already granted
+// Auto-start if mic permission already granted
 if (navigator.permissions) {
     navigator.permissions.query({name: 'microphone'}).then(result => {
         if (result.state === 'granted') {
-            startVoiceRecognition();
-        } else {
-            // will still prompt once
-            startVoiceRecognition();
+            initVoice();
         }
     });
-} else {
-    startVoiceRecognition();
 }
-
-updateSavedFlights();
 </script>
 
 </body>
